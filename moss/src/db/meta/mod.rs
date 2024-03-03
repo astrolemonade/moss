@@ -109,6 +109,7 @@ impl Database {
             .filename(path)
             .create_if_missing(true)
             .read_only(read_only)
+            .serialized(true)
             .foreign_keys(true);
 
         Self::connect(options)
