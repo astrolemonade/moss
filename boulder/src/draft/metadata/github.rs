@@ -2,36 +2,45 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use regex::Regex;
-use url::Url;
+use url::{Host, Origin, Url};
 
 use super::Source;
 
 pub fn source(upstream: &Url) -> Option<Source> {
-    let automatic_regex = Regex::new(
-        r"\w+\:\/\/github\.com\/([A-Za-z0-9-_]+)\/([A-Za-z0-9-_]+)\/archive\/refs\/tags\/([A-Za-z0-9.-_]+)\.(tar|zip)",
-    )
-    .ok()?;
-    let manual_regex = Regex::new(
-        r"\w+\:\/\/github\.com\/([A-Za-z0-9-_]+)\/([A-Za-z0-9-_]+)\/releases\/download\/([A-Za-z0-9-_.]+)\/.*",
-    )
-    .ok()?;
-
-    for matcher in [automatic_regex, manual_regex] {
-        let Some(captures) = matcher.captures(upstream.as_str()) else {
-            continue;
-        };
-
-        let owner = captures.get(1)?.as_str();
-        let project = captures.get(2)?.as_str();
-        let version = captures.get(3)?.as_str().to_string();
-
-        return Some(Source {
-            name: project.to_lowercase(),
-            version,
-            homepage: format!("https://github.com/{owner}/{project}"),
-        });
+    if upstream.origin() != Origin::Tuple("https".to_string(), Host::Domain("github.com".to_string()), 443) {
+        return None;
     }
+    if let Some(segs) = upstream.path_segments() {
+        let params = url_parameters(segs)?;
+        Some(Source {
+            name: params.project.to_lowercase(),
+            version: params.version,
+            homepage: format!("https://github.com/{}/{}", params.owner, params.project),
+        })
+    } else {
+        None
+    }
+}
 
-    None
+struct UrlParameters {
+    owner: String,
+    project: String,
+    version: String,
+}
+
+fn url_parameters(path: std::str::Split<'_, char>) -> Option<UrlParameters> {
+    let elements: Vec<&str> = path.collect();
+
+    let owner = elements.first()?;
+    let project = elements.get(1)?;
+    let intermediate_path = elements.get(2..elements.len() - 2)?;
+    if intermediate_path != vec!["archive", "ref", "tags"] && intermediate_path != vec!["releases", "download"] {
+        return None;
+    }
+    let version = elements.last()?.split('.').next()?;
+    Some(UrlParameters {
+        owner: owner.to_string(),
+        project: project.to_string(),
+        version: version.to_string(),
+    })
 }
